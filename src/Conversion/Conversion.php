@@ -26,6 +26,9 @@ class Conversion
     /** @var bool */
     protected $keepOriginalImageFormat = false;
 
+    /** @var bool */
+    protected $generateResponsiveImages = false;
+
     public function __construct(string $name)
     {
         $this->name = $name;
@@ -49,9 +52,9 @@ class Conversion
      * Set the timecode in seconds to extract a video thumbnail.
      * Only used on video media.
      */
-    public function extractVideoFrameAtSecond(int $timecode): self
+    public function extractVideoFrameAtSecond(int $timeCode): self
     {
-        $this->extractVideoFrameAtSecond = $timecode;
+        $this->extractVideoFrameAtSecond = $timeCode;
 
         return $this;
     }
@@ -68,7 +71,7 @@ class Conversion
         return $this;
     }
 
-    public function shouldKeepOriginalImageFormat(): Bool
+    public function shouldKeepOriginalImageFormat(): bool
     {
         return $this->keepOriginalImageFormat;
     }
@@ -202,6 +205,24 @@ class Conversion
         return $this;
     }
 
+    /**
+     * When creating the converted image, responsive images will be created as well.
+     */
+    public function withResponsiveImages()
+    {
+        $this->generateResponsiveImages = true;
+
+        return $this;
+    }
+
+    /**
+     * Determine if responsive images should be created for this conversion.
+     */
+    public function shouldGenerateResponsiveImages(): bool
+    {
+        return $this->generateResponsiveImages;
+    }
+
     /*
      * Determine if the conversion should be queued.
      */
@@ -216,7 +237,9 @@ class Conversion
     public function getResultExtension(string $originalFileExtension = ''): string
     {
         if ($this->shouldKeepOriginalImageFormat()) {
-            return $originalFileExtension;
+            if (in_array($originalFileExtension, ['jpg', 'pjpg', 'png', 'gif'])) {
+                return $originalFileExtension;
+            }
         }
 
         if ($manipulationArgument = $this->manipulations->getManipulationArgument('format')) {
@@ -224,5 +247,18 @@ class Conversion
         }
 
         return $originalFileExtension;
+    }
+
+    public function getConversionFile(string $file): string
+    {
+        $fileName = pathinfo($file, PATHINFO_FILENAME);
+
+        $extension = $this->getResultExtension();
+
+        if (! $extension) {
+            $extension = pathinfo($file, PATHINFO_EXTENSION);
+        }
+
+        return "{$fileName}-{$this->getName()}.{$extension}";
     }
 }

@@ -3,9 +3,9 @@
 namespace Spatie\MediaLibrary\Commands;
 
 use Exception;
-use Spatie\MediaLibrary\Media;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Spatie\MediaLibrary\Models\Media;
 use Illuminate\Console\ConfirmableTrait;
 use Spatie\MediaLibrary\FileManipulator;
 use Spatie\MediaLibrary\MediaRepository;
@@ -17,7 +17,7 @@ class RegenerateCommand extends Command
     protected $signature = 'medialibrary:regenerate {modelType?} {--ids=*}
     {--only=* : Regenerate specific conversions}
     {--only-missing : Regenerate only missing conversions}
-    {-- force : Force the operation to run when in production}';
+    {--force : Force the operation to run when in production}';
 
     protected $description = 'Regenerate the derived images of media';
 
@@ -53,7 +53,9 @@ class RegenerateCommand extends Command
         $mediaFiles->each(function (Media $media) use ($progressBar) {
             try {
                 $this->fileManipulator->createDerivedFiles(
-                    $media, array_wrap($this->option('only')), $this->option('only-missing')
+                    $media,
+                    array_wrap($this->option('only')),
+                    $this->option('only-missing')
                 );
             } catch (Exception $exception) {
                 $this->errorMessages[$media->id] = $exception->getMessage();
@@ -78,20 +80,31 @@ class RegenerateCommand extends Command
     public function getMediaToBeRegenerated(): Collection
     {
         $modelType = $this->argument('modelType') ?? '';
-        $mediaIds = $this->option('ids');
+        $mediaIds = $this->getMediaIds();
 
-        if ($modelType === '' && ! $mediaIds) {
+        if ($modelType === '' && count($mediaIds) === 0) {
             return $this->mediaRepository->all();
         }
 
-        if ($mediaIds) {
-            if (! is_array($mediaIds)) {
-                $mediaIds = explode(',', $mediaIds);
-            }
-
-            return $this->mediaRepository->getByIds($mediaIds);
+        if (! count($mediaIds)) {
+            return $this->mediaRepository->getByModelType($modelType);
         }
 
-        return $this->mediaRepository->getByModelType($modelType);
+        return $this->mediaRepository->getByIds($mediaIds);
+    }
+
+    protected function getMediaIds(): array
+    {
+        $mediaIds = $this->option('ids');
+
+        if (! is_array($mediaIds)) {
+            $mediaIds = explode(',', $mediaIds);
+        }
+
+        if (count($mediaIds) === 1 && str_contains($mediaIds[0], ',')) {
+            $mediaIds = explode(',', $mediaIds[0]);
+        }
+
+        return $mediaIds;
     }
 }

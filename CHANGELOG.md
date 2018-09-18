@@ -2,6 +2,159 @@
 
 All notable changes to `laravel-medialibrary` will be documented in this file
 
+## 7.5.1 - 2018-09-17
+
+- fix support for Lumen
+
+## 7.5.0 - 2018-09-10
+
+- add rate limiting to clean command
+
+## 7.4.3 - 2018-09-10
+
+- fix for determining extension for non-image filetypes
+
+## 7.4.2 - 2018-09-05
+
+- fix a bug in clean command when no responsive images were generated
+
+## 7.4.1 - 2018-08-24
+
+- add support for Laravel 5.7
+
+## 7.4.0 - 2018-08-13
+
+- allow the job classes to be overridden in the config file
+
+## 7.3.12 - 2018-07-30
+
+- make sure previews responsive images db entries get cleaned up before regenerating
+
+## 7.3.11 - 2018-07-27
+
+- add `$copiedOriginalFile` to the `ConversionWillStart` event
+
+## 7.3.10 - 2018-06-16
+
+- fix for multiple files with the same filename in one ZIP archive
+- fix `markAsConversionGenerated`: disable model events when saving extra properties in Media::updated event
+
+## 7.3.9 - 2018-06-16 
+
+**do not use - broken**
+
+- fix `markAsConversionGenerated`
+
+## 7.3.8 - 2018-05-15
+
+- fix `ids` option of `RegenerateCommand`
+
+## 7.3.7 - 2018-05-15
+
+- bugfix around responsive images
+
+## 7.3.6 - 2018-05-15
+
+- add support from `webp`
+
+## 7.3.5 - 2018-05-08
+
+- fix bug where `addMediaFromUrl` would not work if the file contained a space
+
+## 7.3.4 - 2018-05-07
+
+- proper check and tests on forced deletion with soft delete models.
+
+## 7.3.3 - 2018-05-04
+
+- add dev dependency on pdo SQLite to prevent confusing errors.
+
+## 7.3.2 - 2018-05-04
+
+- fix #1076
+
+## 7.3.1 - 2018-05-02
+
+- fix custom properties not saved on copy (#1073)
+
+## 7.3.0 - 2018-04-30
+
+- Add `hasGeneratedConversion`
+
+## 7.1.8 - 2018-04-06
+
+- avoid removing the file when the model uses `SoftDeletes`
+
+## 7.1.7 - 2018-04-24
+
+- improve checking applied traits on the Media model
+
+## 7.1.6 - 2018-04-16
+
+- fix `ffprobe` path
+
+## 7.1.5 - 2018-04-13
+
+- always use the correct image driver.
+
+## 7.1.4 - 2018-04-13
+
+- ease `maennchen/zipstream-php` requirements
+
+## 7.1.3 - 2018-03-30
+
+- Fix for renaming files when not all conversions are present
+- Fix bugs when working with remote filesystems
+
+## 7.1.2 - 2018-03-22
+
+- fix a typo in `medialibrary.disk_name`.
+
+## 7.1.0 - 2018-03-22
+
+- `Filesystem` interface removed.
+- rename `Filesytem::renameFile(Media $media, string $oldFileName)` to `Filesystem::syncFileNames(Media $media)`
+- The `default_filesystem` config key has been changed to `disk_name`.
+
+## 7.0.6 - 2018-03-22
+
+- fix publishing views
+
+## 7.0.5 - 2018-03-22
+
+- fix for adding remote files with no name
+
+## 7.0.4 - 2018-03-21
+
+- fix responsive images rendering of conversions
+
+## 7.0.3 - 2018-03-21
+
+- add null fallback when placeholder SVG isn't rendered yet (#967)
+- add ResponsiveImagesGenerated event
+
+## 7.0.2 - 2018-03-21
+
+- support custom headers for conversions (#868)
+
+## 7.0.0 - 2018-03-17
+
+- added support for responsive images
+- added `MediaCollections`
+- added single file collections
+- added `ZipStreamResponse`
+
+- added `move` and `copy` methods on `Media`
+
+- file names will be lowercased when adding them to the medialibrary
+- the names of converted images will now start with the name of the original file
+
+- dropped support for soft deletes
+- removed distinction between `HasMedia` and `HasMediaConversions`
+- dropped support for PHP 7.0
+
+- `ffmpeg_binaries` renamed to `ffmpeg_path`, `ffprobe_binaries` renamed to `ffprobe_path`
+
 ## 6.9.0 - 2018-03-04
 
 - add wildcard manipulations
@@ -29,6 +182,7 @@ All notable changes to `laravel-medialibrary` will be documented in this file
 ## 6.6.6 - 2017-12-30
 
 - fix download error
+
 
 ## 6.6.5 - 2017-12-30
 

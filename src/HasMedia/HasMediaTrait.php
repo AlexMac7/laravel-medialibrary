@@ -4,18 +4,18 @@ namespace Spatie\MediaLibrary\HasMedia;
 
 use DateTimeInterface;
 use Illuminate\Http\File;
-use Spatie\MediaLibrary\Media;
 use Illuminate\Support\Collection;
+use Spatie\MediaLibrary\Models\Media;
 use Spatie\MediaLibrary\MediaRepository;
 use Illuminate\Support\Facades\Validator;
 use Spatie\MediaLibrary\FileAdder\FileAdder;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\MediaLibrary\Conversion\Conversion;
 use Spatie\MediaLibrary\FileAdder\FileAdderFactory;
-use Spatie\MediaLibrary\HasMedia\Interfaces\HasMedia;
 use Spatie\MediaLibrary\Events\CollectionHasBeenCleared;
 use Spatie\MediaLibrary\Exceptions\MediaCannotBeDeleted;
 use Spatie\MediaLibrary\Exceptions\MediaCannotBeUpdated;
+use Spatie\MediaLibrary\MediaCollection\MediaCollection;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\UnreachableUrl;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\InvalidBase64Data;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\MimeTypeNotAllowed;
@@ -24,6 +24,9 @@ trait HasMediaTrait
 {
     /** @var array */
     public $mediaConversions = [];
+
+    /** @var array */
+    public $mediaCollections = [];
 
     /** @var bool */
     protected $deletePreservingMedia = false;
@@ -38,7 +41,7 @@ trait HasMediaTrait
                 return;
             }
 
-            if (in_array(SoftDeletes::class, trait_uses_recursive($entity))) {
+            if (in_array(SoftDeletes::class, class_uses_recursive($entity))) {
                 if (! $entity->forceDeleting) {
                     return;
                 }
@@ -120,15 +123,26 @@ trait HasMediaTrait
             throw UnreachableUrl::create($url);
         }
 
-        $tmpFile = tempnam(sys_get_temp_dir(), 'media-library');
-        file_put_contents($tmpFile, $stream);
+        $temporaryFile = tempnam(sys_get_temp_dir(), 'media-library');
+        file_put_contents($temporaryFile, $stream);
 
-        $this->guardAgainstInvalidMimeType($tmpFile, $allowedMimeTypes);
+        $this->guardAgainstInvalidMimeType($temporaryFile, $allowedMimeTypes);
 
         $filename = basename(parse_url($url, PHP_URL_PATH));
+        $filename = str_replace('%20', ' ', $filename);
+
+        if ($filename === '') {
+            $filename = 'file';
+        }
+
+        $mediaExtension = explode('/', mime_content_type($temporaryFile));
+
+        if (! str_contains($filename, '.')) {
+            $filename = "{$filename}.{$mediaExtension[1]}";
+        }
 
         return app(FileAdderFactory::class)
-            ->create($this, $tmpFile)
+            ->create($this, $temporaryFile)
             ->usingName(pathinfo($filename, PATHINFO_FILENAME))
             ->usingFileName($filename);
     }
@@ -144,12 +158,12 @@ trait HasMediaTrait
      *
      * @return \Spatie\MediaLibrary\FileAdder\FileAdder
      */
-    public function addMediaFromBase64(string $base64data, ...$allowedMimeTypes)
+    public function addMediaFromBase64(string $base64data, ...$allowedMimeTypes): FileAdder
     {
         // strip out data uri scheme information (see RFC 2397)
         if (strpos($base64data, ';base64') !== false) {
-            list(, $base64data) = explode(';', $base64data);
-            list(, $base64data) = explode(',', $base64data);
+            [$_, $base64data] = explode(';', $base64data);
+            [$_, $base64data] = explode(',', $base64data);
         }
 
         // strict mode filters for non-base64 alphabet characters
@@ -170,8 +184,7 @@ trait HasMediaTrait
 
         $this->guardAgainstInvalidMimeType($tmpFile, $allowedMimeTypes);
 
-        $file = app(FileAdderFactory::class)
-            ->create($this, $tmpFile);
+        $file = app(FileAdderFactory::class)->create($this, $tmpFile);
 
         return $file;
     }
@@ -209,15 +222,7 @@ trait HasMediaTrait
         return app(MediaRepository::class)->getCollection($this, $collectionName, $filters);
     }
 
-    /**
-     * Get the first media item of a media collection.
-     *
-     * @param string $collectionName
-     * @param array $filters
-     *
-     * @return Media|null
-     */
-    public function getFirstMedia(string $collectionName = 'default', array $filters = [])
+    public function getFirstMedia(string $collectionName = 'default', array $filters = []): ?Media
     {
         $media = $this->getMedia($collectionName, $filters);
 
@@ -293,7 +298,7 @@ trait HasMediaTrait
                 $mediaClass = config('medialibrary.media_model');
                 $currentMedia = $mediaClass::findOrFail($newMediaItem['id']);
 
-                if ($currentMedia->collection_name != $collectionName) {
+                if ($currentMedia->collection_name !== $collectionName) {
                     throw MediaCannotBeUpdated::doesNotBelongToCollection($collectionName, $currentMedia);
                 }
 
@@ -313,10 +318,6 @@ trait HasMediaTrait
             });
     }
 
-    /**
-     * @param array $newMediaArray
-     * @param string $collectionName
-     */
     protected function removeMediaItemsNotPresentInArray(array $newMediaArray, string $collectionName = 'default')
     {
         $this->getMedia($collectionName)
@@ -333,7 +334,7 @@ trait HasMediaTrait
      *
      * @return $this
      */
-    public function clearMediaCollection(string $collectionName = 'default')
+    public function clearMediaCollection(string $collectionName = 'default'): self
     {
         $this->getMedia($collectionName)
             ->each->delete();
@@ -351,12 +352,16 @@ trait HasMediaTrait
      * Remove all media in the given collection except some.
      *
      * @param string $collectionName
-     * @param \Spatie\MediaLibrary\Media[]|\Illuminate\Support\Collection $excludedMedia
+     * @param \Spatie\MediaLibrary\Models\Media[]|\Illuminate\Support\Collection $excludedMedia
      *
      * @return $this
      */
     public function clearMediaCollectionExcept(string $collectionName = 'default', $excludedMedia = [])
     {
+        if ($excludedMedia instanceof Media) {
+            $excludedMedia = collect()->push($excludedMedia);
+        }
+
         $excludedMedia = collect($excludedMedia);
 
         if ($excludedMedia->isEmpty()) {
@@ -380,7 +385,7 @@ trait HasMediaTrait
      * Delete the associated media with the given id.
      * You may also pass a media object.
      *
-     * @param int|\Spatie\MediaLibrary\Media $mediaId
+     * @param int|\Spatie\MediaLibrary\Models\Media $mediaId
      *
      * @throws \Spatie\MediaLibrary\Exceptions\MediaCannotBeDeleted
      */
@@ -411,6 +416,15 @@ trait HasMediaTrait
         return $conversion;
     }
 
+    public function addMediaCollection(string $name): MediaCollection
+    {
+        $mediaCollection = MediaCollection::create($name);
+
+        $this->mediaCollections[] = $mediaCollection;
+
+        return $mediaCollection;
+    }
+
     /**
      * Delete the model, but preserve all the associated media.
      *
@@ -426,7 +440,7 @@ trait HasMediaTrait
     /**
      * Determines if the media files should be preserved when the media object gets deleted.
      *
-     * @return \Spatie\MediaLibrary\Media
+     * @return bool
      */
     public function shouldDeletePreservingMedia()
     {
@@ -493,5 +507,37 @@ trait HasMediaTrait
         if ($validation->fails()) {
             throw MimeTypeNotAllowed::create($file, $allowedMimeTypes);
         }
+    }
+
+    public function registerMediaConversions(Media $media = null)
+    {
+    }
+
+    public function registerMediaCollections()
+    {
+    }
+
+    public function registerAllMediaConversions(Media $media = null)
+    {
+        $this->registerMediaCollections();
+
+        collect($this->mediaCollections)->each(function (MediaCollection $mediaCollection) use ($media) {
+            $actualMediaConversions = $this->mediaConversions;
+
+            $this->mediaConversions = [];
+
+            ($mediaCollection->mediaConversionRegistrations)($media);
+
+            $preparedMediaConversions = collect($this->mediaConversions)
+                ->each(function (Conversion $conversion) use ($mediaCollection) {
+                    $conversion->performOnCollections($mediaCollection->name);
+                })
+                ->values()
+                ->toArray();
+
+            $this->mediaConversions = array_merge($actualMediaConversions, $preparedMediaConversions);
+        });
+
+        $this->registerMediaConversions($media);
     }
 }

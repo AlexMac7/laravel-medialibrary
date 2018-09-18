@@ -3,7 +3,6 @@ sudo: required
 language: php
 
 php:
-  - 7.0
   - 7.1
   - 7.2
 
@@ -18,7 +17,6 @@ before_install:
 
 install:
   - travis_retry composer update --prefer-source $COMPOSER_FLAGS
-  - travis_retry composer require php-ffmpeg/php-ffmpeg
   - travis_retry composer require league/flysystem-aws-s3-v3
   - yes | pecl install imagick
   - sudo apt-get install -y ghostscript
@@ -29,4 +27,3 @@ script:
 branches:
   only:
     - master
-    - laravel55

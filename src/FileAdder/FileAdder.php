@@ -2,18 +2,22 @@
 
 namespace Spatie\MediaLibrary\FileAdder;
 
-use Spatie\MediaLibrary\Media;
 use Spatie\MediaLibrary\Helpers\File;
+use Spatie\MediaLibrary\Models\Media;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\MediaLibrary\HasMedia\HasMedia;
+use Spatie\MediaLibrary\File as PendingFile;
 use Spatie\MediaLibrary\Filesystem\Filesystem;
-use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded;
-use Spatie\MediaLibrary\HasMedia\Interfaces\HasMedia;
+use Spatie\MediaLibrary\Jobs\GenerateResponsiveImages;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Spatie\MediaLibrary\MediaCollection\MediaCollection;
 use Symfony\Component\HttpFoundation\File\File as SymfonyFile;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\UnknownType;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\FileIsTooBig;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\DiskDoesNotExist;
 use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\FileDoesNotExist;
+use Spatie\MediaLibrary\ImageGenerators\FileTypes\Image as ImageGenerator;
+use Spatie\MediaLibrary\Exceptions\FileCannotBeAdded\FileUnacceptableForCollection;
 
 class FileAdder
 {
@@ -53,6 +57,12 @@ class FileAdder
     /** @var null|callable */
     protected $fileNameSanitizer;
 
+    /** @var bool */
+    protected $generateResponsiveImages = false;
+
+    /** @var array */
+    protected $customHeaders = [];
+
     /**
      * @param Filesystem $fileSystem
      */
@@ -84,7 +94,7 @@ class FileAdder
      *
      * @return $this
      */
-    public function setFile($file)
+    public function setFile($file): self
     {
         $this->file = $file;
 
@@ -115,162 +125,85 @@ class FileAdder
         throw UnknownType::create();
     }
 
-    /**
-     * When adding the file to the media library, the original file
-     * will be preserved.
-     *
-     * @return $this
-     */
-    public function preservingOriginal()
+    public function preservingOriginal(): self
     {
         $this->preserveOriginal = true;
 
         return $this;
     }
 
-    /**
-     * Set the name of the media object.
-     *
-     * @param string $name
-     *
-     * @return $this
-     */
-    public function usingName(string $name)
+    public function usingName(string $name): self
     {
         return $this->setName($name);
     }
 
-    /**
-     * Set the name of the media object.
-     *
-     * @param string $name
-     *
-     * @return $this
-     */
-    public function setName(string $name)
+    public function setName(string $name): self
     {
         $this->mediaName = $name;
 
         return $this;
     }
 
-    /**
-     * Set the name of the file that is stored on disk.
-     *
-     * @param string $fileName
-     *
-     * @return $this
-     */
-    public function usingFileName(string $fileName)
+    public function usingFileName(string $fileName): self
     {
         return $this->setFileName($fileName);
     }
 
-    /**
-     * Set the name of the file that is stored on disk.
-     *
-     * @param string $fileName
-     *
-     * @return $this
-     */
-    public function setFileName(string $fileName)
+    public function setFileName(string $fileName): self
     {
         $this->fileName = $fileName;
 
         return $this;
     }
 
-    /**
-     * Set the metadata.
-     *
-     * @param array $customProperties
-     *
-     * @return $this
-     */
-    public function withCustomProperties(array $customProperties)
+    public function withCustomProperties(array $customProperties): self
     {
         $this->customProperties = $customProperties;
 
         return $this;
     }
 
-    /**
-     * Set the manipulations.
-     *
-     * @param array $manipulations
-     *
-     * @return $this
-     */
-    public function withManipulations(array $manipulations)
+    public function withManipulations(array $manipulations): self
     {
         $this->manipulations = $manipulations;
 
         return $this;
     }
 
-    /**
-     * Set properties on the model.
-     *
-     * @param array $properties
-     *
-     * @return $this
-     */
-    public function withProperties(array $properties)
+    public function withProperties(array $properties): self
     {
         $this->properties = $properties;
 
         return $this;
     }
 
-    /**
-     * Set attributes on the model.
-     *
-     * @param array $properties
-     *
-     * @return $this
-     */
-    public function withAttributes(array $properties)
+    public function withAttributes(array $properties): self
     {
         return $this->withProperties($properties);
     }
 
-    /**
-     * Add the given additional headers when copying the file to a remote filesystem.
-     *
-     * @param array $customRemoteHeaders
-     *
-     * @return $this
-     */
-    public function addCustomHeaders(array $customRemoteHeaders)
+    public function withResponsiveImages(): self
     {
+        $this->generateResponsiveImages = true;
+
+        return $this;
+    }
+
+    public function addCustomHeaders(array $customRemoteHeaders): self
+    {
+        $this->customHeaders = $customRemoteHeaders;
+
         $this->filesystem->addCustomRemoteHeaders($customRemoteHeaders);
 
         return $this;
     }
 
-    /**
-     * @param string $collectionName
-     *
-     * @return \Spatie\MediaLibrary\Media
-     *
-     * @throws FileCannotBeAdded
-     * @throws \Spatie\MediaLibrary\Exceptions\FileCannotBeAdded
-     */
-    public function toMediaCollectionOnCloudDisk(string $collectionName = 'default')
+    public function toMediaCollectionOnCloudDisk(string $collectionName = 'default'): Media
     {
         return $this->toMediaCollection($collectionName, config('filesystems.cloud'));
     }
 
-    /**
-     * @param string $collectionName
-     * @param string $diskName
-     *
-     * @return \Spatie\MediaLibrary\Media
-     *
-     * @throws FileCannotBeAdded
-     * @throws \Spatie\MediaLibrary\Exceptions\FileCannotBeAdded
-     */
-    public function toMediaCollection(string $collectionName = 'default', string $diskName = '')
+    public function toMediaCollection(string $collectionName = 'default', string $diskName = ''): Media
     {
         if (! is_file($this->pathToFile)) {
             throw FileDoesNotExist::create($this->pathToFile);
@@ -281,6 +214,7 @@ class FileAdder
         }
 
         $mediaClass = config('medialibrary.media_model');
+        /** @var \Spatie\MediaLibrary\Models\Media $media */
         $media = new $mediaClass();
 
         $media->name = $this->mediaName;
@@ -288,14 +222,24 @@ class FileAdder
         $this->fileName = ($this->fileNameSanitizer)($this->fileName);
 
         $media->file_name = $this->fileName;
-        $media->disk = $this->determineDiskName($diskName);
+
+        $media->disk = $this->determineDiskName($diskName, $collectionName);
+
+        if (is_null(config("filesystems.disks.{$media->disk}"))) {
+            throw DiskDoesNotExist::create($media->disk);
+        }
 
         $media->collection_name = $collectionName;
 
         $media->mime_type = File::getMimetype($this->pathToFile);
         $media->size = filesize($this->pathToFile);
         $media->custom_properties = $this->customProperties;
+
+        $media->responsive_images = [];
+
         $media->manipulations = $this->manipulations;
+
+        $media->setCustomHeaders($this->customHeaders);
 
         $media->fill($this->properties);
 
@@ -304,53 +248,35 @@ class FileAdder
         return $media;
     }
 
-    /**
-     * @param string $diskName
-     *
-     * @return string
-     *
-     * @throws \Spatie\MediaLibrary\Exceptions\FileCannotBeAdded
-     */
-    protected function determineDiskName(string $diskName)
+    protected function determineDiskName(string $diskName, string $collectionName): string
     {
-        if ($diskName === '') {
-            $diskName = config('medialibrary.default_filesystem');
+        if ($diskName !== '') {
+            return $diskName;
         }
 
-        if (is_null(config("filesystems.disks.{$diskName}"))) {
-            throw DiskDoesNotExist::create($diskName);
+        if ($collection = $this->getMediaCollection($collectionName)) {
+            $collectionDiskName = $collection->diskName;
+
+            if ($collectionDiskName !== '') {
+                return $collectionDiskName;
+            }
         }
 
-        return $diskName;
+        return config('medialibrary.disk_name');
     }
 
-    /**
-     * @param $fileName
-     *
-     * @return string
-     */
     public function defaultSanitizer(string $fileName): string
     {
-        return str_replace(['#', '/', '\\'], '-', $fileName);
+        return str_replace(['#', '/', '\\', ' '], '-', $fileName);
     }
 
-    /**
-     * Sanitize the fileName of the file using a callable.
-     *
-     * @param callable $fileNameSanitizer
-     *
-     * @return $this
-     */
-    public function sanitizingFileName(callable $fileNameSanitizer)
+    public function sanitizingFileName(callable $fileNameSanitizer): self
     {
         $this->fileNameSanitizer = $fileNameSanitizer;
 
         return $this;
     }
 
-    /**
-     * @param Media $media
-     */
     protected function attachMedia(Media $media)
     {
         if (! $this->subject->exists) {
@@ -370,19 +296,55 @@ class FileAdder
         $this->processMediaItem($this->subject, $media, $this);
     }
 
-    /**
-     * @param HasMedia $model
-     * @param Media $media
-     * @param FileAdder $fileAdder
-     */
     protected function processMediaItem(HasMedia $model, Media $media, self $fileAdder)
     {
+        $this->guardAgainstDisallowedFileAdditions($media, $model);
+
         $model->media()->save($media);
 
         $this->filesystem->add($fileAdder->pathToFile, $media, $fileAdder->fileName);
 
         if (! $fileAdder->preserveOriginal) {
             unlink($fileAdder->pathToFile);
+        }
+
+        if ($this->generateResponsiveImages && (new ImageGenerator())->canConvert($media)) {
+            $generateResponsiveImagesJobClass = config('medialibrary.jobs.generate_responsive_images', GenerateResponsiveImages::class);
+
+            $job = new $generateResponsiveImagesJobClass($media);
+
+            if ($customQueue = config('medialibrary.queue_name')) {
+                $job->onQueue($customQueue);
+            }
+
+            dispatch($job);
+        }
+
+        if (optional($this->getMediaCollection($media->collection_name))->singleFile) {
+            $model->clearMediaCollectionExcept($media->collection_name, $media);
+        }
+    }
+
+    protected function getMediaCollection(string $collectionName): ?MediaCollection
+    {
+        $this->subject->registerMediaCollections();
+
+        return collect($this->subject->mediaCollections)
+            ->first(function (MediaCollection $collection) use ($collectionName) {
+                return $collection->name === $collectionName;
+            });
+    }
+
+    protected function guardAgainstDisallowedFileAdditions(Media $media)
+    {
+        $file = PendingFile::createFromMedia($media);
+
+        if (! $collection = $this->getMediaCollection($media->collection_name)) {
+            return;
+        }
+
+        if (! ($collection->acceptsFile)($file, $this->subject)) {
+            throw FileUnacceptableForCollection::create($file, $collection, $this->subject);
         }
     }
 }
